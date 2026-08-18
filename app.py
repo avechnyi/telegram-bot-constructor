@@ -2,60 +2,30 @@ import os
 import asyncio
 import logging
 
-from flask import Flask
+from flask import Flask, request
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-
-from database import (
-    init_database,
-    add_bot,
-    get_bots,
-    get_bot,
-    bot_statistics,
-)
-
-from bot_manager import (
-    run_single_bot,
-)
+from aiogram.types import Update
 
 
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
 
-ADMIN_BOT_TOKEN = os.getenv(
-    "ADMIN_BOT_TOKEN"
-)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-ADMIN_ID = int(
-    os.getenv(
-        "ADMIN_ID",
-        "0"
-    )
-)
+PORT = int(os.getenv("PORT", "10000"))
 
-PORT = int(
-    os.getenv(
-        "PORT",
-        "10000"
-    )
+WEBHOOK_PATH = os.getenv(
+    "WEBHOOK_PATH",
+    "/telegram/webhook"
 )
 
 
-if not ADMIN_BOT_TOKEN:
+if not BOT_TOKEN:
     raise RuntimeError(
-        "ADMIN_BOT_TOKEN не найден"
-    )
-
-
-if not ADMIN_ID:
-    raise RuntimeError(
-        "ADMIN_ID не найден"
+        "BOT_TOKEN не найден в Environment Variables"
     )
 
 
@@ -68,613 +38,110 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-logger = logging.getLogger(
-    __name__
-)
-
-
-# ============================================================
-# DATABASE
-# ============================================================
-
-init_database()
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
 # FLASK
 # ============================================================
 
-app = Flask(
-    __name__
-)
-
-
-@app.get("/")
-def index():
-
-    return (
-        "Bot constructor is running",
-        200
-    )
+app = Flask(__name__)
 
 
 # ============================================================
-# TELEGRAM ADMIN BOT
+# TELEGRAM
 # ============================================================
 
 dp = Dispatcher()
 
 
 # ============================================================
-# СОСТОЯНИЕ АДМИНА
+# START
 # ============================================================
 
-admin_state = {}
+@dp.message(CommandStart())
+async def start_handler(message: types.Message):
 
+    user_id = message.from_user.id
 
-# ============================================================
-# ЗАДАЧИ РАБОЧИХ БОТОВ
-# ============================================================
-
-worker_tasks = {}
-
-
-# ============================================================
-# ПРОВЕРКА АДМИНА
-# ============================================================
-
-def is_admin(
-    user_id: int
-):
-
-    return (
-        user_id == ADMIN_ID
-    )
-
-
-# ============================================================
-# ГЛАВНОЕ МЕНЮ
-# ============================================================
-
-def main_keyboard():
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="➕ Создать бота",
-                    callback_data="create_bot"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📋 Мои боты",
-                    callback_data="my_bots"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📊 Статистика",
-                    callback_data="statistics"
-                )
-            ]
-        ]
-    )
-
-
-# ============================================================
-# /START
-# ============================================================
-
-@dp.message(
-    CommandStart()
-)
-async def start_handler(
-    message: types.Message
-):
-
-    if not is_admin(
-        message.from_user.id
-    ):
-
-        await message.answer(
-            "Доступ запрещён."
-        )
-
-        return
-
-    admin_state.pop(
-        message.from_user.id,
-        None
+    logger.info(
+        "START FROM USER: %s",
+        user_id
     )
 
     await message.answer(
-        "👑 КОНСТРУКТОР БОТОВ\n\n"
-        "Выбери действие:",
-        reply_markup=main_keyboard()
+        "Привет 👋\n\n"
+        "Чтобы начать, напиши немного о себе."
+    )
+
+    logger.info(
+        "START SENT TO USER: %s",
+        user_id
     )
 
 
 # ============================================================
-# СОЗДАНИЕ БОТА
-# ============================================================
-
-@dp.callback_query(
-    lambda c: c.data == "create_bot"
-)
-async def create_bot_start(
-    callback: types.CallbackQuery
-):
-
-    if not is_admin(
-        callback.from_user.id
-    ):
-
-        await callback.answer(
-            "Доступ запрещён",
-            show_alert=True
-        )
-
-        return
-
-    await callback.answer()
-
-    admin_state[
-        callback.from_user.id
-    ] = {
-        "step": "name"
-    }
-
-    await callback.message.answer(
-        "➕ СОЗДАНИЕ БОТА\n\n"
-        "Шаг 1 из 3.\n\n"
-        "Отправь название нового бота."
-    )
-
-
-# ============================================================
-# МОИ БОТЫ
-# ============================================================
-
-@dp.callback_query(
-    lambda c: c.data == "my_bots"
-)
-async def my_bots_handler(
-    callback: types.CallbackQuery
-):
-
-    if not is_admin(
-        callback.from_user.id
-    ):
-
-        await callback.answer(
-            "Доступ запрещён",
-            show_alert=True
-        )
-
-        return
-
-    await callback.answer()
-
-    bots = get_bots()
-
-    if not bots:
-
-        await callback.message.answer(
-            "📋 Ботов пока нет.\n\n"
-            "Нажми «➕ Создать бота»."
-        )
-
-        return
-
-    text = (
-        "📋 МОИ БОТЫ\n\n"
-    )
-
-    buttons = []
-
-    for bot in bots:
-
-        status = (
-            "🟢"
-            if bot["enabled"]
-            else "🔴"
-        )
-
-        username = (
-            bot["username"]
-            or "без username"
-        )
-
-        text += (
-            f"{status} {bot['name']}\n"
-            f"@{username.lstrip('@')}\n\n"
-        )
-
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"⚙️ {bot['name']}",
-                    callback_data=(
-                        f"bot:{bot['id']}"
-                    )
-                )
-            ]
-        )
-
-    await callback.message.answer(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=buttons
-        )
-    )
-
-
-# ============================================================
-# СТАТИСТИКА
-# ============================================================
-
-@dp.callback_query(
-    lambda c: c.data == "statistics"
-)
-async def statistics_handler(
-    callback: types.CallbackQuery
-):
-
-    if not is_admin(
-        callback.from_user.id
-    ):
-
-        await callback.answer(
-            "Доступ запрещён",
-            show_alert=True
-        )
-
-        return
-
-    await callback.answer()
-
-    bots = get_bots()
-
-    if not bots:
-
-        await callback.message.answer(
-            "📊 Ботов пока нет."
-        )
-
-        return
-
-    text = (
-        "📊 СТАТИСТИКА\n\n"
-    )
-
-    for bot in bots:
-
-        stats = bot_statistics(
-            bot["id"]
-        )
-
-        text += (
-            f"🤖 {bot['name']}\n"
-            f"👥 Пользователей: "
-            f"{stats['users']}\n"
-            f"▶️ Стартов: "
-            f"{stats['starts']}\n"
-            f"ℹ️ Подробности: "
-            f"{stats['details']}\n"
-            f"🔗 Переходов: "
-            f"{stats['curator']}\n\n"
-        )
-
-    await callback.message.answer(
-        text
-    )
-
-
-# ============================================================
-# КОНКРЕТНЫЙ БОТ
-# ============================================================
-
-@dp.callback_query(
-    lambda c: c.data.startswith("bot:")
-)
-async def bot_details_handler(
-    callback: types.CallbackQuery
-):
-
-    if not is_admin(
-        callback.from_user.id
-    ):
-
-        await callback.answer(
-            "Доступ запрещён",
-            show_alert=True
-        )
-
-        return
-
-    await callback.answer()
-
-    bot_id = int(
-        callback.data.split(":")[1]
-    )
-
-    bot = get_bot(
-        bot_id
-    )
-
-    if not bot:
-
-        await callback.message.answer(
-            "Бот не найден."
-        )
-
-        return
-
-    stats = bot_statistics(
-        bot_id
-    )
-
-    status = (
-        "🟢 Работает"
-        if bot["enabled"]
-        else "🔴 Выключен"
-    )
-
-    username = (
-        bot["username"]
-        or "не указан"
-    )
-
-    text = (
-        f"🤖 {bot['name']}\n\n"
-        f"Username: @{username.lstrip('@')}\n"
-        f"Статус: {status}\n\n"
-        f"👥 Пользователей: "
-        f"{stats['users']}\n"
-        f"▶️ Стартов: "
-        f"{stats['starts']}\n"
-        f"ℹ️ Подробности: "
-        f"{stats['details']}\n"
-        f"🔗 Переходов: "
-        f"{stats['curator']}"
-    )
-
-    await callback.message.answer(
-        text
-    )
-
-
-# ============================================================
-# ПОЛУЧЕНИЕ ДАННЫХ ПРИ СОЗДАНИИ
+# Обычные сообщения
 # ============================================================
 
 @dp.message()
-async def admin_message_handler(
-    message: types.Message
-):
+async def message_handler(message: types.Message):
 
-    user_id = (
-        message.from_user.id
+    user_id = message.from_user.id
+    text = message.text or ""
+
+    logger.info(
+        "MESSAGE FROM %s: %s",
+        user_id,
+        text
     )
 
-    if not is_admin(
-        user_id
-    ):
-
-        return
-
-    state = admin_state.get(
-        user_id
-    )
-
-    if not state:
+    if text:
 
         await message.answer(
-            "Используй /start.",
-            reply_markup=main_keyboard()
+            "Получила сообщение 👌\n\n"
+            "Расскажи немного о себе и своём опыте."
         )
-
-        return
-
-    step = state.get(
-        "step"
-    )
-
-    # ========================================================
-    # НАЗВАНИЕ
-    # ========================================================
-
-    if step == "name":
-
-        name = (
-            message.text or ""
-        ).strip()
-
-        if not name:
-
-            await message.answer(
-                "Название не может быть пустым."
-            )
-
-            return
-
-        state["name"] = name
-        state["step"] = "username"
-
-        await message.answer(
-            "Шаг 2 из 3.\n\n"
-            "Отправь username бота.\n\n"
-            "Например:\n"
-            "@my_new_bot"
-        )
-
-        return
-
-    # ========================================================
-    # USERNAME
-    # ========================================================
-
-    if step == "username":
-
-        username = (
-            message.text or ""
-        ).strip()
-
-        if username.startswith("@"):
-
-            username = username[1:]
-
-        if not username:
-
-            await message.answer(
-                "Username не может быть пустым."
-            )
-
-            return
-
-        state["username"] = username
-        state["step"] = "token"
-
-        await message.answer(
-            "Шаг 3 из 3.\n\n"
-            "Отправь BOT TOKEN нового бота.\n\n"
-            "Токен нужен для подключения бота "
-            "к конструктору."
-        )
-
-        return
-
-    # ========================================================
-    # TOKEN
-    # ========================================================
-
-    if step == "token":
-
-        token = (
-            message.text or ""
-        ).strip()
-
-        if not token:
-
-            await message.answer(
-                "Токен не может быть пустым."
-            )
-
-            return
-
-        test_bot = None
-
-        try:
-
-            test_bot = Bot(
-                token=token
-            )
-
-            info = await test_bot.get_me()
-
-        except Exception:
-
-            logger.exception(
-                "TOKEN VALIDATION ERROR"
-            )
-
-            await message.answer(
-                "❌ Токен не прошёл проверку.\n\n"
-                "Проверь его в BotFather "
-                "и отправь ещё раз."
-            )
-
-            return
-
-        finally:
-
-            if test_bot:
-
-                await test_bot.session.close()
-
-        try:
-
-            bot_id = add_bot(
-                name=state["name"],
-                username=state["username"],
-                token=token
-            )
-
-        except Exception:
-
-            logger.exception(
-                "DATABASE BOT CREATE ERROR"
-            )
-
-            await message.answer(
-                "❌ Не удалось сохранить бота.\n\n"
-                "Возможно, этот токен уже добавлен."
-            )
-
-            return
-
-        # ----------------------------------------------------
-        # СОЗДАЁМ ЗАДАЧУ РАБОЧЕГО БОТА
-        # ----------------------------------------------------
-
-        bot_record = get_bot(
-            bot_id
-        )
-
-        task = asyncio.create_task(
-            run_single_bot(
-                bot_record
-            )
-        )
-
-        worker_tasks[
-            bot_id
-        ] = task
-
-        admin_state.pop(
-            user_id,
-            None
-        )
-
-        await message.answer(
-            "✅ БОТ СОЗДАН\n\n"
-            f"Название: {state['name']}\n"
-            f"Username: @{state['username']}\n"
-            f"Telegram: @{info.username}\n\n"
-            "🟢 Бот добавлен в конструктор.\n\n"
-            "Теперь он использует общий шаблон.",
-            reply_markup=main_keyboard()
-        )
-
-        logger.info(
-            "BOT CREATED: id=%s username=%s",
-            bot_id,
-            state["username"]
-        )
-
-        return
 
 
 # ============================================================
-# ЗАПУСК АДМИНКИ
+# PROCESS UPDATE
 # ============================================================
 
-async def run_admin():
+async def process_update(update_data: dict):
 
     bot = Bot(
-        token=ADMIN_BOT_TOKEN
+        token=BOT_TOKEN
     )
 
     try:
 
         logger.info(
-            "ADMIN BOT STARTED"
+            "PROCESS UPDATE: %s",
+            update_data.get("update_id")
         )
 
-        await dp.start_polling(
-            bot
+        update = Update.model_validate(
+            update_data
         )
+
+        await dp.feed_update(
+            bot,
+            update
+        )
+
+        logger.info(
+            "UPDATE FINISHED: %s",
+            update_data.get("update_id")
+        )
+
+    except Exception:
+
+        logger.exception(
+            "UPDATE PROCESS ERROR"
+        )
+
+        raise
 
     finally:
 
@@ -682,15 +149,268 @@ async def run_admin():
 
 
 # ============================================================
-# MAIN
+# WEBHOOK
+# ============================================================
+
+@app.route(
+    WEBHOOK_PATH,
+    methods=["POST"]
+)
+def telegram_webhook():
+
+    logger.info(
+        "=========================================="
+    )
+
+    logger.info(
+        "WEBHOOK REQUEST RECEIVED"
+    )
+
+    try:
+
+        update_data = request.get_json(
+            force=True
+        )
+
+        if not update_data:
+
+            logger.warning(
+                "EMPTY TELEGRAM UPDATE"
+            )
+
+            return "ok", 200
+
+        logger.info(
+            "UPDATE ID: %s",
+            update_data.get("update_id")
+        )
+
+        asyncio.run(
+            process_update(
+                update_data
+            )
+        )
+
+        logger.info(
+            "WEBHOOK FINISHED"
+        )
+
+        return "ok", 200
+
+    except Exception:
+
+        logger.exception(
+            "WEBHOOK ERROR"
+        )
+
+        return "ok", 200
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.route("/")
+def health():
+
+    return (
+        "Telegram bot is running",
+        200
+    )
+
+
+# ============================================================
+# SETUP WEBHOOK
+# ============================================================
+
+@app.route("/setup")
+def setup():
+
+    async def setup_async():
+
+        bot = Bot(
+            token=BOT_TOKEN
+        )
+
+        try:
+
+            # Получаем внешний адрес Render
+            render_url = os.getenv(
+                "RENDER_EXTERNAL_URL"
+            )
+
+            if not render_url:
+
+                render_url = request.url_root.rstrip("/")
+
+            webhook_url = (
+                render_url.rstrip("/")
+                + WEBHOOK_PATH
+            )
+
+            logger.info(
+                "SETTING WEBHOOK:"
+            )
+
+            logger.info(
+                "%s",
+                webhook_url
+            )
+
+            await bot.set_webhook(
+                url=webhook_url,
+                drop_pending_updates=True
+            )
+
+            info = await bot.get_webhook_info()
+
+            logger.info(
+                "WEBHOOK URL: %s",
+                info.url
+            )
+
+            logger.info(
+                "PENDING: %s",
+                info.pending_update_count
+            )
+
+            return (
+                "<h2>Webhook successfully set ✅</h2>"
+                f"<p>{info.url}</p>"
+            )
+
+        except Exception as e:
+
+            logger.exception(
+                "WEBHOOK SET ERROR"
+            )
+
+            return (
+                "<h2>Webhook error ❌</h2>"
+                f"<pre>{e}</pre>"
+            )
+
+        finally:
+
+            await bot.session.close()
+
+    return asyncio.run(
+        setup_async()
+    )
+
+
+# ============================================================
+# WEBHOOK INFO
+# ============================================================
+
+@app.route("/info")
+def webhook_info():
+
+    async def get_info():
+
+        bot = Bot(
+            token=BOT_TOKEN
+        )
+
+        try:
+
+            info = await bot.get_webhook_info()
+
+            return (
+                "<h2>Webhook info</h2>"
+                f"<p><b>URL:</b> {info.url}</p>"
+                f"<p><b>Pending:</b> "
+                f"{info.pending_update_count}</p>"
+                f"<p><b>Last error:</b> "
+                f"{info.last_error_message}</p>"
+            )
+
+        except Exception as e:
+
+            return (
+                "<pre>"
+                f"{e}"
+                "</pre>"
+            )
+
+        finally:
+
+            await bot.session.close()
+
+    return asyncio.run(
+        get_info()
+    )
+
+
+# ============================================================
+# DELETE WEBHOOK
+# ============================================================
+
+@app.route("/delete-webhook")
+def delete_webhook():
+
+    async def delete_async():
+
+        bot = Bot(
+            token=BOT_TOKEN
+        )
+
+        try:
+
+            await bot.delete_webhook(
+                drop_pending_updates=True
+            )
+
+            return (
+                "<h2>Webhook deleted ✅</h2>"
+            )
+
+        except Exception as e:
+
+            return (
+                "<pre>"
+                f"{e}"
+                "</pre>"
+            )
+
+        finally:
+
+            await bot.session.close()
+
+    return asyncio.run(
+        delete_async()
+    )
+
+
+# ============================================================
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
 
     logger.info(
-        "Starting constructor..."
+        "=========================================="
     )
 
-    asyncio.run(
-        run_admin()
+    logger.info(
+        "STARTING TELEGRAM BOT"
+    )
+
+    logger.info(
+        "PORT: %s",
+        PORT
+    )
+
+    logger.info(
+        "WEBHOOK PATH: %s",
+        WEBHOOK_PATH
+    )
+
+    logger.info(
+        "=========================================="
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=PORT
     )
