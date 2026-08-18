@@ -19,23 +19,43 @@ from database import (
     bot_statistics,
 )
 
+from bot_manager import (
+    run_single_bot,
+)
+
 
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
 
-ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-PORT = int(os.getenv("PORT", "10000"))
+ADMIN_BOT_TOKEN = os.getenv(
+    "ADMIN_BOT_TOKEN"
+)
+
+ADMIN_ID = int(
+    os.getenv(
+        "ADMIN_ID",
+        "0"
+    )
+)
+
+PORT = int(
+    os.getenv(
+        "PORT",
+        "10000"
+    )
+)
+
 
 if not ADMIN_BOT_TOKEN:
     raise RuntimeError(
-        "ADMIN_BOT_TOKEN не найден в Environment"
+        "ADMIN_BOT_TOKEN не найден"
     )
+
 
 if not ADMIN_ID:
     raise RuntimeError(
-        "ADMIN_ID не найден в Environment"
+        "ADMIN_ID не найден"
     )
 
 
@@ -48,23 +68,38 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(
+    __name__
+)
+
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+init_database()
 
 
 # ============================================================
 # FLASK
 # ============================================================
 
-app = Flask(__name__)
+app = Flask(
+    __name__
+)
 
 
 @app.get("/")
 def index():
-    return "Bot constructor is running", 200
+
+    return (
+        "Bot constructor is running",
+        200
+    )
 
 
 # ============================================================
-# TELEGRAM
+# TELEGRAM ADMIN BOT
 # ============================================================
 
 dp = Dispatcher()
@@ -75,6 +110,26 @@ dp = Dispatcher()
 # ============================================================
 
 admin_state = {}
+
+
+# ============================================================
+# ЗАДАЧИ РАБОЧИХ БОТОВ
+# ============================================================
+
+worker_tasks = {}
+
+
+# ============================================================
+# ПРОВЕРКА АДМИНА
+# ============================================================
+
+def is_admin(
+    user_id: int
+):
+
+    return (
+        user_id == ADMIN_ID
+    )
 
 
 # ============================================================
@@ -108,19 +163,12 @@ def main_keyboard():
 
 
 # ============================================================
-# ПРОВЕРКА АДМИНА
-# ============================================================
-
-def is_admin(user_id: int):
-
-    return user_id == ADMIN_ID
-
-
-# ============================================================
 # /START
 # ============================================================
 
-@dp.message(CommandStart())
+@dp.message(
+    CommandStart()
+)
 async def start_handler(
     message: types.Message
 ):
@@ -141,14 +189,14 @@ async def start_handler(
     )
 
     await message.answer(
-        "👑 Конструктор ботов\n\n"
+        "👑 КОНСТРУКТОР БОТОВ\n\n"
         "Выбери действие:",
         reply_markup=main_keyboard()
     )
 
 
 # ============================================================
-# КНОПКА «СОЗДАТЬ БОТА»
+# СОЗДАНИЕ БОТА
 # ============================================================
 
 @dp.callback_query(
@@ -178,9 +226,9 @@ async def create_bot_start(
     }
 
     await callback.message.answer(
-        "➕ Создание нового бота\n\n"
+        "➕ СОЗДАНИЕ БОТА\n\n"
         "Шаг 1 из 3.\n\n"
-        "Отправь название бота."
+        "Отправь название нового бота."
     )
 
 
@@ -191,7 +239,7 @@ async def create_bot_start(
 @dp.callback_query(
     lambda c: c.data == "my_bots"
 )
-async def my_bots(
+async def my_bots_handler(
     callback: types.CallbackQuery
 ):
 
@@ -219,7 +267,9 @@ async def my_bots(
 
         return
 
-    text = "📋 Твои боты:\n\n"
+    text = (
+        "📋 МОИ БОТЫ\n\n"
+    )
 
     buttons = []
 
@@ -238,15 +288,19 @@ async def my_bots(
 
         text += (
             f"{status} {bot['name']}\n"
-            f"   @{username.lstrip('@')}\n\n"
+            f"@{username.lstrip('@')}\n\n"
         )
 
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"⚙️ {bot['name']}",
-                callback_data=f"bot:{bot['id']}"
-            )
-        ])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"⚙️ {bot['name']}",
+                    callback_data=(
+                        f"bot:{bot['id']}"
+                    )
+                )
+            ]
+        )
 
     await callback.message.answer(
         text,
@@ -263,7 +317,7 @@ async def my_bots(
 @dp.callback_query(
     lambda c: c.data == "statistics"
 )
-async def statistics(
+async def statistics_handler(
     callback: types.CallbackQuery
 ):
 
@@ -285,12 +339,14 @@ async def statistics(
     if not bots:
 
         await callback.message.answer(
-            "📊 Пока нет ботов для статистики."
+            "📊 Ботов пока нет."
         )
 
         return
 
-    text = "📊 Статистика\n\n"
+    text = (
+        "📊 СТАТИСТИКА\n\n"
+    )
 
     for bot in bots:
 
@@ -300,10 +356,14 @@ async def statistics(
 
         text += (
             f"🤖 {bot['name']}\n"
-            f"👥 Пользователей: {stats['users']}\n"
-            f"▶️ Стартов: {stats['starts']}\n"
-            f"ℹ️ Подробности: {stats['details']}\n"
-            f"🔗 Куратор: {stats['curator']}\n\n"
+            f"👥 Пользователей: "
+            f"{stats['users']}\n"
+            f"▶️ Стартов: "
+            f"{stats['starts']}\n"
+            f"ℹ️ Подробности: "
+            f"{stats['details']}\n"
+            f"🔗 Переходов: "
+            f"{stats['curator']}\n\n"
         )
 
     await callback.message.answer(
@@ -312,13 +372,13 @@ async def statistics(
 
 
 # ============================================================
-# ОТКРЫТИЕ КОНКРЕТНОГО БОТА
+# КОНКРЕТНЫЙ БОТ
 # ============================================================
 
 @dp.callback_query(
     lambda c: c.data.startswith("bot:")
 )
-async def bot_details(
+async def bot_details_handler(
     callback: types.CallbackQuery
 ):
 
@@ -361,14 +421,23 @@ async def bot_details(
         else "🔴 Выключен"
     )
 
+    username = (
+        bot["username"]
+        or "не указан"
+    )
+
     text = (
         f"🤖 {bot['name']}\n\n"
-        f"Username: @{(bot['username'] or '').lstrip('@')}\n"
+        f"Username: @{username.lstrip('@')}\n"
         f"Статус: {status}\n\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"▶️ Стартов: {stats['starts']}\n"
-        f"ℹ️ Подробности: {stats['details']}\n"
-        f"🔗 Куратор: {stats['curator']}"
+        f"👥 Пользователей: "
+        f"{stats['users']}\n"
+        f"▶️ Стартов: "
+        f"{stats['starts']}\n"
+        f"ℹ️ Подробности: "
+        f"{stats['details']}\n"
+        f"🔗 Переходов: "
+        f"{stats['curator']}"
     )
 
     await callback.message.answer(
@@ -377,17 +446,21 @@ async def bot_details(
 
 
 # ============================================================
-# ПОЛУЧЕНИЕ ТЕКСТОВ ОТ АДМИНА
+# ПОЛУЧЕНИЕ ДАННЫХ ПРИ СОЗДАНИИ
 # ============================================================
 
 @dp.message()
-async def admin_messages(
+async def admin_message_handler(
     message: types.Message
 ):
 
-    user_id = message.from_user.id
+    user_id = (
+        message.from_user.id
+    )
 
-    if not is_admin(user_id):
+    if not is_admin(
+        user_id
+    ):
 
         return
 
@@ -408,50 +481,73 @@ async def admin_messages(
         "step"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # НАЗВАНИЕ
-    # --------------------------------------------------------
+    # ========================================================
 
     if step == "name":
 
-        state["name"] = (
+        name = (
             message.text or ""
         ).strip()
 
+        if not name:
+
+            await message.answer(
+                "Название не может быть пустым."
+            )
+
+            return
+
+        state["name"] = name
         state["step"] = "username"
 
         await message.answer(
             "Шаг 2 из 3.\n\n"
-            "Отправь username нового бота.\n\n"
+            "Отправь username бота.\n\n"
             "Например:\n"
             "@my_new_bot"
         )
 
         return
 
-    # --------------------------------------------------------
+    # ========================================================
     # USERNAME
-    # --------------------------------------------------------
+    # ========================================================
 
     if step == "username":
 
-        state["username"] = (
+        username = (
             message.text or ""
         ).strip()
 
+        if username.startswith("@"):
+
+            username = username[1:]
+
+        if not username:
+
+            await message.answer(
+                "Username не может быть пустым."
+            )
+
+            return
+
+        state["username"] = username
         state["step"] = "token"
 
         await message.answer(
             "Шаг 3 из 3.\n\n"
             "Отправь BOT TOKEN нового бота.\n\n"
-            "Токен не публикуй в чатах или GitHub."
+            "Токен нужен для подключения бота "
+            "к конструктору."
         )
 
         return
 
-    # --------------------------------------------------------
+    # ========================================================
     # TOKEN
-    # --------------------------------------------------------
+    # ========================================================
 
     if step == "token":
 
@@ -459,48 +555,82 @@ async def admin_messages(
             message.text or ""
         ).strip()
 
-        name = state["name"]
-        username = state["username"]
+        if not token:
+
+            await message.answer(
+                "Токен не может быть пустым."
+            )
+
+            return
+
+        test_bot = None
 
         try:
 
-            # Проверяем токен через Telegram
             test_bot = Bot(
                 token=token
             )
 
             info = await test_bot.get_me()
 
-            await test_bot.session.close()
-
         except Exception:
+
+            logger.exception(
+                "TOKEN VALIDATION ERROR"
+            )
 
             await message.answer(
                 "❌ Токен не прошёл проверку.\n\n"
-                "Проверь BOT TOKEN и отправь его ещё раз."
+                "Проверь его в BotFather "
+                "и отправь ещё раз."
             )
 
             return
 
+        finally:
+
+            if test_bot:
+
+                await test_bot.session.close()
+
         try:
 
             bot_id = add_bot(
-                name=name,
-                username=username,
+                name=state["name"],
+                username=state["username"],
                 token=token
             )
 
         except Exception:
 
             logger.exception(
-                "BOT SAVE ERROR"
+                "DATABASE BOT CREATE ERROR"
             )
 
             await message.answer(
-                "❌ Не удалось сохранить бота."
+                "❌ Не удалось сохранить бота.\n\n"
+                "Возможно, этот токен уже добавлен."
             )
 
             return
+
+        # ----------------------------------------------------
+        # СОЗДАЁМ ЗАДАЧУ РАБОЧЕГО БОТА
+        # ----------------------------------------------------
+
+        bot_record = get_bot(
+            bot_id
+        )
+
+        task = asyncio.create_task(
+            run_single_bot(
+                bot_record
+            )
+        )
+
+        worker_tasks[
+            bot_id
+        ] = task
 
         admin_state.pop(
             user_id,
@@ -508,26 +638,29 @@ async def admin_messages(
         )
 
         await message.answer(
-            "✅ Бот добавлен!\n\n"
-            f"Название: {name}\n"
-            f"Username: @{username.lstrip('@')}\n"
+            "✅ БОТ СОЗДАН\n\n"
+            f"Название: {state['name']}\n"
+            f"Username: @{state['username']}\n"
             f"Telegram: @{info.username}\n\n"
-            "Теперь он появился в списке ботов.",
+            "🟢 Бот добавлен в конструктор.\n\n"
+            "Теперь он использует общий шаблон.",
             reply_markup=main_keyboard()
         )
 
         logger.info(
-            "NEW BOT CREATED: %s (%s)",
+            "BOT CREATED: id=%s username=%s",
             bot_id,
-            username
+            state["username"]
         )
 
+        return
+
 
 # ============================================================
-# ЗАПУСК
+# ЗАПУСК АДМИНКИ
 # ============================================================
 
-async def run_bot():
+async def run_admin():
 
     bot = Bot(
         token=ADMIN_BOT_TOKEN
@@ -536,7 +669,7 @@ async def run_bot():
     try:
 
         logger.info(
-            "Admin bot started"
+            "ADMIN BOT STARTED"
         )
 
         await dp.start_polling(
@@ -555,15 +688,9 @@ async def run_bot():
 if __name__ == "__main__":
 
     logger.info(
-        "Initializing database..."
-    )
-
-    init_database()
-
-    logger.info(
-        "Starting admin bot..."
+        "Starting constructor..."
     )
 
     asyncio.run(
-        run_bot()
+        run_admin()
     )
