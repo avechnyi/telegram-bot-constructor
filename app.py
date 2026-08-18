@@ -6,8 +6,12 @@ import threading
 
 from flask import Flask, request
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
 from aiogram.filters import CommandStart
 
 
@@ -17,26 +21,35 @@ from aiogram.filters import CommandStart
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+PORT = int(
+    os.getenv("PORT", "10000")
+)
+
 WEBHOOK_PATH = os.getenv(
     "WEBHOOK_PATH",
     "/webhook/ec750989503ad40b54d76ec334e24805"
 )
 
-PORT = int(os.getenv("PORT", "10000"))
-
-# Ссылка на бота команды
 CURATOR_URL = os.getenv(
     "CURATOR_URL",
     "https://t.me/usdteamrubot?start=6a76eafa1c83616169c692b9"
 )
 
-# Через сколько отправлять второе сообщение.
-# Сейчас случайно от 5 до 30 минут.
-MIN_DELAY = int(os.getenv("MIN_DELAY", "5"))
-MAX_DELAY = int(os.getenv("MAX_DELAY", "30"))
+# Задержка второго сообщения.
+# В минутах.
+MIN_DELAY = int(
+    os.getenv("MIN_DELAY", "5")
+)
+
+MAX_DELAY = int(
+    os.getenv("MAX_DELAY", "30")
+)
+
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не найден в Environment")
+    raise RuntimeError(
+        "BOT_TOKEN не найден в Environment"
+    )
 
 
 # ============================================================
@@ -66,10 +79,20 @@ dp = Dispatcher()
 
 
 # ============================================================
-# КНОПКИ
+# ПРОСТОЕ ХРАНИЛИЩЕ
+# ============================================================
+
+users = {}
+
+users_lock = threading.Lock()
+
+
+# ============================================================
+# КНОПКА "УЗНАТЬ ПОДРОБНОСТИ"
 # ============================================================
 
 def details_keyboard():
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -82,7 +105,12 @@ def details_keyboard():
     )
 
 
+# ============================================================
+# КНОПКА "СВЯЗАТЬСЯ"
+# ============================================================
+
 def curator_keyboard():
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -96,7 +124,7 @@ def curator_keyboard():
 
 
 # ============================================================
-# ТЕКСТЫ
+# ПЕРВОЕ СООБЩЕНИЕ
 # ============================================================
 
 START_TEXT = """Здравствуйте 🤝
@@ -110,6 +138,10 @@ START_TEXT = """Здравствуйте 🤝
 И буквально пару слов о себе: какие у Вас сильные стороны, что хорошо получается, как обычно подходите к работе 🙂"""
 
 
+# ============================================================
+# ПОСЛЕ АНКЕТЫ
+# ============================================================
+
 FORM_ACCEPTED_TEXT = """Спасибо за заполнение анкеты 🤝
 
 Ваша анкета отправлена на рассмотрение.
@@ -117,30 +149,46 @@ FORM_ACCEPTED_TEXT = """Спасибо за заполнение анкеты �
 Ожидайте ответ."""
 
 
-# ВАЖНО:
-# Здесь указывай только реальные и проверяемые условия вакансии.
-# Не используй гарантии дохода или неподтверждённые цифры.
+# ============================================================
+# ОТЛОЖЕННОЕ СООБЩЕНИЕ
+# ============================================================
 
-VACANCY_TEXT = """К сожалению, на данную вакансию уже утвердили другого кандидата.
-Мы можем предложить вам другую позицию в нашей команде:
+# Здесь можно поставить свой фактический текст вакансии.
+#
+# Не добавляй сюда гарантии дохода или утверждения,
+# которые не соответствуют реальным условиям.
 
-В нашей команде сейчас открыта новая вакансия.
-Работа полностью удалённая, график свободный, обучение предоставляем.
+VACANCY_TEXT = """К сожалению, на первоначальную вакансию уже выбран другой кандидат.
 
-Если вас заинтересовало данное предложение, нажмите кнопку ниже чтобы узнать подробности👇"""
+Мы можем предложить вам рассмотреть другую позицию в нашей команде.
+
+Работа полностью удалённая, график свободный, обучение и сопровождение предоставляются.
+
+Если предложение актуально для вас, нажмите кнопку ниже, чтобы узнать подробности👇"""
 
 
-DETAILS_TEXT = """Команда специализируется на криптовалютном арбитраже между биржами.
+# ============================================================
+# ПОДРОБНОСТИ
+# ============================================================
 
-Опытный отдел аналитиков находит разницу в цене активов между биржами и передаёт информацию наставникам.
+DETAILS_TEXT = """Здесь разместите подробное описание вакансии и реальные условия работы.
 
-Все операции должны выполняться самостоятельно после ознакомления с рисками и условиями соответствующих платформ.
+Укажите:
+— чем занимается команда;
+— какие задачи предстоит выполнять;
+— как проходит обучение;
+— какие требования предъявляются;
+— как устроено взаимодействие с наставником;
+— условия оплаты.
 
-Для работы используются популярные криптовалютные биржи.
+Перед началом работы обязательно ознакомьтесь со всеми рисками и условиями соответствующих сервисов."""
 
-Условия обучения и взаимодействия с наставниками необходимо заранее уточнить у команды.
 
-Для связи с менеджером для дальнейшей работы вам необходимо:
+# ============================================================
+# ИНСТРУКЦИЯ ДЛЯ КУРАТОРА
+# ============================================================
+
+CURATOR_TEXT = """Для связи с менеджером для дальнейшей работы вам необходимо:
 
 1. Перейти в бота команды по кнопке ниже.
 2. Нажать «Старт».
@@ -148,22 +196,13 @@ DETAILS_TEXT = """Команда специализируется на крип�
 
 
 # ============================================================
-# ХРАНЕНИЕ ПОЛЬЗОВАТЕЛЕЙ
+# ОТЛОЖЕННАЯ ОТПРАВКА
 # ============================================================
 
-# Для текущей версии достаточно памяти процесса.
-# Для большой фермы потом лучше вынести это в PostgreSQL.
-
-users = {}
-
-lock = threading.Lock()
-
-
-# ============================================================
-# ОТПРАВКА ОТЛОЖЕННОГО СООБЩЕНИЯ
-# ============================================================
-
-def send_delayed_offer(user_id: int, delay_seconds: int):
+def schedule_offer(
+    user_id: int,
+    delay_seconds: int
+):
 
     logger.info(
         "USER %s: offer scheduled in %s seconds",
@@ -171,29 +210,55 @@ def send_delayed_offer(user_id: int, delay_seconds: int):
         delay_seconds
     )
 
-    def worker():
+    timer = threading.Timer(
+        delay_seconds,
+        delayed_offer_worker,
+        args=(user_id,)
+    )
 
-        logger.info(
-            "USER %s: sending delayed offer",
-            user_id
-        )
+    timer.daemon = True
+
+    timer.start()
+
+
+# ============================================================
+# WORKER
+# ============================================================
+
+def delayed_offer_worker(
+    user_id: int
+):
+
+    logger.info(
+        "USER %s: delayed offer worker started",
+        user_id
+    )
+
+    try:
 
         asyncio.run(
             send_offer(user_id)
         )
 
-    timer = threading.Timer(
-        delay_seconds,
-        worker
+    except Exception:
+
+        logger.exception(
+            "USER %s: delayed offer error",
+            user_id
+        )
+
+
+# ============================================================
+# ОТПРАВКА ВТОРОГО СООБЩЕНИЯ
+# ============================================================
+
+async def send_offer(
+    user_id: int
+):
+
+    bot = Bot(
+        token=BOT_TOKEN
     )
-
-    timer.daemon = True
-    timer.start()
-
-
-async def send_offer(user_id: int):
-
-    bot = Bot(token=BOT_TOKEN)
 
     try:
 
@@ -204,14 +269,14 @@ async def send_offer(user_id: int):
         )
 
         logger.info(
-            "USER %s: offer sent",
+            "USER %s: delayed offer sent",
             user_id
         )
 
     except Exception:
 
         logger.exception(
-            "USER %s: ERROR SENDING OFFER",
+            "USER %s: failed to send offer",
             user_id
         )
 
@@ -225,7 +290,9 @@ async def send_offer(user_id: int):
 # ============================================================
 
 @dp.message(CommandStart())
-async def start_handler(message: types.Message):
+async def start_handler(
+    message: types.Message
+):
 
     user_id = message.from_user.id
 
@@ -234,13 +301,13 @@ async def start_handler(message: types.Message):
         user_id
     )
 
-    with lock:
+    with users_lock:
 
         users[user_id] = {
+            "user_id": user_id,
             "username": message.from_user.username,
             "first_name": message.from_user.first_name,
-            "state": "waiting_form",
-            "started": True
+            "state": "waiting_form"
         }
 
     await message.answer(
@@ -254,11 +321,15 @@ async def start_handler(message: types.Message):
 
 
 # ============================================================
-# НАЖАТИЕ "УЗНАТЬ ПОДРОБНОСТИ"
+# КНОПКА "УЗНАТЬ ПОДРОБНОСТИ"
 # ============================================================
 
-@dp.callback_query(lambda c: c.data == "details")
-async def details_handler(callback: types.CallbackQuery):
+@dp.callback_query(
+    F.data == "details"
+)
+async def details_handler(
+    callback: types.CallbackQuery
+):
 
     user_id = callback.from_user.id
 
@@ -274,7 +345,7 @@ async def details_handler(callback: types.CallbackQuery):
     )
 
     await callback.message.answer(
-        "Для связи с менеджером нажмите кнопку ниже:",
+        CURATOR_TEXT,
         reply_markup=curator_keyboard()
     )
 
@@ -284,10 +355,17 @@ async def details_handler(callback: types.CallbackQuery):
 # ============================================================
 
 @dp.message()
-async def message_handler(message: types.Message):
+async def message_handler(
+    message: types.Message
+):
 
     user_id = message.from_user.id
-    text = message.text or ""
+
+    text = (
+        message.text
+        or message.caption
+        or ""
+    )
 
     logger.info(
         "MESSAGE FROM %s: %s",
@@ -295,43 +373,66 @@ async def message_handler(message: types.Message):
         text
     )
 
-    with lock:
+    # --------------------------------------------------------
+    # ПОЛЬЗОВАТЕЛЬ ЗАПОЛНЯЕТ АНКЕТУ
+    # --------------------------------------------------------
 
-        user = users.get(user_id)
+    with users_lock:
 
-        if not user:
+        user = users.get(
+            user_id
+        )
+
+        if user is None:
+
             users[user_id] = {
+                "user_id": user_id,
                 "username": message.from_user.username,
                 "first_name": message.from_user.first_name,
                 "state": "waiting_form"
             }
+
             user = users[user_id]
 
+        current_state = user.get(
+            "state"
+        )
+
     # --------------------------------------------------------
-    # ПЕРВЫЙ ОТВЕТ ПОЛЬЗОВАТЕЛЯ
+    # ПЕРВЫЙ ОТВЕТ
     # --------------------------------------------------------
 
-    if user.get("state") == "waiting_form":
+    if current_state == "waiting_form":
 
-        with lock:
-            users[user_id]["state"] = "form_completed"
+        with users_lock:
+
+            users[user_id]["state"] = (
+                "form_completed"
+            )
 
         await message.answer(
             FORM_ACCEPTED_TEXT
         )
 
-        # 5-30 минут
+        # Случайная задержка
+        # от MIN_DELAY до MAX_DELAY минут.
+
         delay_minutes = random.randint(
             MIN_DELAY,
             MAX_DELAY
         )
 
-        delay_seconds = delay_minutes * 60
+        delay_seconds = (
+            delay_minutes * 60
+        )
 
-        with lock:
-            users[user_id]["offer_delay"] = delay_seconds
+        with users_lock:
 
-        send_delayed_offer(
+            users[user_id][
+                "offer_delay"
+            ] = delay_seconds
+
+        schedule_offer(
             user_id,
             delay_seconds
         )
@@ -345,25 +446,31 @@ async def message_handler(message: types.Message):
         return
 
     # --------------------------------------------------------
-    # ЕСЛИ ЧЕЛОВЕК ПИШЕТ ПОСЛЕ АНКЕТЫ
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПИШЕТ ПОСЛЕ АНКЕТЫ
     # --------------------------------------------------------
 
     await message.answer(
-        "Спасибо, информация получена. Ожидайте дальнейшую информацию."
+        "Спасибо, информация получена. Ожидайте дальнейшей информации."
     )
 
 
 # ============================================================
-# ОБРАБОТКА UPDATE
+# ОБРАБОТКА TELEGRAM UPDATE
 # ============================================================
 
-async def process_update(update_data: dict):
+async def process_update(
+    update_data: dict
+):
 
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(
+        token=BOT_TOKEN
+    )
 
     try:
 
-        logger.info("=" * 50)
+        logger.info(
+            "=" * 50
+        )
 
         logger.info(
             "PROCESS: update %s",
@@ -398,14 +505,22 @@ async def process_update(update_data: dict):
 
 
 # ============================================================
-# WEBHOOK
+# TELEGRAM WEBHOOK
 # ============================================================
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
+@app.route(
+    WEBHOOK_PATH,
+    methods=["POST"]
+)
 def telegram_webhook():
 
-    logger.info("=" * 50)
-    logger.info("WEBHOOK: request received")
+    logger.info(
+        "=" * 50
+    )
+
+    logger.info(
+        "WEBHOOK: request received"
+    )
 
     try:
 
@@ -416,7 +531,7 @@ def telegram_webhook():
 
         if not update_data:
 
-            logger.error(
+            logger.warning(
                 "WEBHOOK: empty update"
             )
 
@@ -457,14 +572,20 @@ def telegram_webhook():
 # HEALTH CHECK
 # ============================================================
 
-@app.route("/", methods=["GET"])
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def health():
 
-    return "Bot is running", 200
+    return (
+        "Telegram bot is running",
+        200
+    )
 
 
 # ============================================================
-# MANUAL WEBHOOK SETUP
+# WEBHOOK SETUP
 # ============================================================
 
 async def setup_webhook():
@@ -475,23 +596,29 @@ async def setup_webhook():
 
     if not render_url:
 
-        logger.warning(
-            "RENDER_EXTERNAL_URL не найден"
+        logger.error(
+            "RENDER_EXTERNAL_URL not found"
         )
 
-        return
+        return False
 
     webhook_url = (
         render_url.rstrip("/")
         + WEBHOOK_PATH
     )
 
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(
+        token=BOT_TOKEN
+    )
 
     try:
 
         logger.info(
-            "Setting webhook: %s",
+            "Setting webhook:"
+        )
+
+        logger.info(
+            "%s",
             webhook_url
         )
 
@@ -500,14 +627,14 @@ async def setup_webhook():
             drop_pending_updates=False
         )
 
+        info = await bot.get_webhook_info()
+
         logger.info(
             "Webhook successfully set"
         )
 
-        info = await bot.get_webhook_info()
-
         logger.info(
-            "Telegram webhook URL: %s",
+            "Webhook URL: %s",
             info.url
         )
 
@@ -516,11 +643,22 @@ async def setup_webhook():
             info.pending_update_count
         )
 
+        if info.last_error_message:
+
+            logger.warning(
+                "Telegram last error: %s",
+                info.last_error_message
+            )
+
+        return True
+
     except Exception:
 
         logger.exception(
             "WEBHOOK SET ERROR"
         )
+
+        return False
 
     finally:
 
@@ -528,22 +666,33 @@ async def setup_webhook():
 
 
 # ============================================================
-# /setup
+# РУЧНАЯ УСТАНОВКА WEBHOOK
 # ============================================================
 
-@app.route("/setup", methods=["GET"])
+@app.route(
+    "/setup",
+    methods=["GET"]
+)
 def setup_route():
 
     try:
 
-        asyncio.run(
+        success = asyncio.run(
             setup_webhook()
         )
 
+        if success:
+
+            return (
+                "Webhook setup completed. "
+                "Check Render logs.",
+                200
+            )
+
         return (
-            "Webhook setup completed. "
+            "Webhook setup failed. "
             "Check Render logs.",
-            200
+            500
         )
 
     except Exception as e:
@@ -562,12 +711,17 @@ def setup_route():
 # ПРОВЕРКА WEBHOOK
 # ============================================================
 
-@app.route("/webhook-info", methods=["GET"])
+@app.route(
+    "/webhook-info",
+    methods=["GET"]
+)
 def webhook_info():
 
     async def get_info():
 
-        bot = Bot(token=BOT_TOKEN)
+        bot = Bot(
+            token=BOT_TOKEN
+        )
 
         try:
 
@@ -575,9 +729,17 @@ def webhook_info():
 
             return {
                 "url": info.url,
-                "pending_updates": info.pending_update_count,
-                "last_error": info.last_error_message,
-                "last_error_date": info.last_error_date
+                "pending_updates": (
+                    info.pending_update_count
+                ),
+                "last_error": (
+                    info.last_error_message
+                ),
+                "last_error_date": (
+                    str(info.last_error_date)
+                    if info.last_error_date
+                    else None
+                )
             }
 
         finally:
@@ -604,14 +766,49 @@ def webhook_info():
 
 
 # ============================================================
+# СТАТИСТИКА
+# ============================================================
+
+@app.route(
+    "/stats",
+    methods=["GET"]
+)
+def stats():
+
+    with users_lock:
+
+        total = len(users)
+
+        completed = sum(
+            1
+            for user in users.values()
+            if user.get("state")
+            == "form_completed"
+        )
+
+    return {
+        "total_users": total,
+        "completed_forms": completed
+    }, 200
+
+
+# ============================================================
 # START
 # ============================================================
 
 if __name__ == "__main__":
 
-    logger.info("=" * 50)
-    logger.info("Starting Telegram bot...")
-    logger.info("=" * 50)
+    logger.info(
+        "=" * 50
+    )
+
+    logger.info(
+        "Starting Telegram bot..."
+    )
+
+    logger.info(
+        "=" * 50
+    )
 
     try:
 
@@ -639,7 +836,9 @@ if __name__ == "__main__":
         PORT
     )
 
-    logger.info("=" * 50)
+    logger.info(
+        "=" * 50
+    )
 
     app.run(
         host="0.0.0.0",
